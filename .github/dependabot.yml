@@ -1,0 +1,21 @@
+# Keeps npm packages and GitHub Actions up to date automatically.
+# Security updates are applied as soon as advisories appear; regular updates
+# group into a weekly PR to avoid noise.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      production:
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
+      development:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
