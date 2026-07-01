@@ -25,6 +25,65 @@ type LoadedData = {
   students: Student[];
 };
 
+/** STAAR inline_choice stems embed dropdown choices as "[[opt1|opt2|opt3]]". */
+function countBlanks(stem: string): number {
+  return (stem.match(/\[\[(.*?)\]\]/g) ?? []).length;
+}
+
+/**
+ * Splits a stem on `[[...]]` markers and renders each as an inline <select>,
+ * matching how STAAR itself embeds dropdowns in the sentence rather than
+ * listing choices below it. Marker choice text is matched against `options`
+ * (case-insensitively) to recover the option's letter for grading.
+ */
+function renderInlineStem(
+  stem: string,
+  options: Option[] | undefined,
+  selected: string[],
+  onSelect: (blankIndex: number, value: string) => void
+): React.ReactNode[] {
+  const regex = /\[\[(.*?)\]\]/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let blankIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(stem)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(stem.slice(lastIndex, match.index));
+    }
+    const choices = match[1].split("|").map((c) => c.trim()).filter(Boolean);
+    const blank = blankIndex;
+    parts.push(
+      <select
+        key={`blank-${blank}`}
+        value={selected[blank] ?? ""}
+        onChange={(e) => onSelect(blank, e.target.value)}
+        className="mx-1 inline-block rounded border border-navy/40 bg-[#EDF2FA] px-2 py-1 text-sm font-medium text-navy outline-none focus:border-navy focus:ring-2 focus:ring-navy/[0.06]"
+      >
+        <option value="" disabled>
+          Choose&hellip;
+        </option>
+        {choices.map((choiceText) => {
+          const matchedOption = options?.find(
+            (o) => o.text.trim().toLowerCase() === choiceText.toLowerCase()
+          );
+          const value = matchedOption?.letter ?? choiceText;
+          return (
+            <option key={value} value={value}>
+              {choiceText}
+            </option>
+          );
+        })}
+      </select>
+    );
+    lastIndex = regex.lastIndex;
+    blankIndex += 1;
+  }
+  if (lastIndex < stem.length) parts.push(stem.slice(lastIndex));
+  return parts;
+}
+
 export function TakeClient({ assignmentId }: { assignmentId: string }) {
   const [data, setData] = useState<LoadedData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +119,33 @@ export function TakeClient({ assignmentId }: { assignmentId: string }) {
       }
       return { ...prev, [qi]: [letter] };
     });
+  }
+
+  /** inline_choice: one dropdown per blank, addressed by its position in the stem. */
+  function setBlankAnswer(qi: number, blankIndex: number, value: string) {
+    setAnswers((prev) => {
+      const cur = [...(prev[qi] ?? [])];
+      cur[blankIndex] = value;
+      return { ...prev, [qi]: cur };
+    });
+  }
+
+  /** constructed_response: free text, not auto-graded (teacher reviews it). */
+  function setTextAnswer(qi: number, text: string) {
+    setAnswers((prev) => ({ ...prev, [qi]: text.trim() ? [text] : [] }));
+  }
+
+  function isAnswered(q: Question, qi: number): boolean {
+    const sel = answers[qi] ?? [];
+    if (q.type === "constructed_response") {
+      return sel.length > 0 && sel[0].trim().length > 0;
+    }
+    if (q.type === "inline_choice") {
+      const blanks = countBlanks(q.stem);
+      if (blanks === 0) return sel.length > 0;
+      return sel.length === blanks && sel.every(Boolean);
+    }
+    return sel.length > 0;
   }
 
   async function submit() {
@@ -168,7 +254,7 @@ export function TakeClient({ assignmentId }: { assignmentId: string }) {
   }
 
   // Quiz screen
-  const allAnswered = data.questions.every((_, i) => (answers[i] ?? []).length > 0);
+  const allAnswered = data.questions.every((q, i) => isAnswered(q, i));
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
@@ -189,35 +275,58 @@ export function TakeClient({ assignmentId }: { assignmentId: string }) {
               <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-stone">
                 Question {qi + 1}
                 {multi ? " (select all that apply)" : ""}
+                {q.type === "inline_choice" ? " (choose from each dropdown)" : ""}
               </div>
-              <p className="mb-4 text-[15px] leading-relaxed">{q.stem}</p>
-              <div className="space-y-2">
-                {q.options?.map((opt) => {
-                  const chosen = selected.includes(opt.letter);
-                  return (
-                    <button
-                      key={opt.letter}
-                      onClick={() => toggleAnswer(qi, opt.letter, multi)}
-                      className={`flex w-full items-start gap-3 rounded border p-3 text-left text-sm transition ${
-                        chosen
-                          ? "border-navy bg-navy/[0.04]"
-                          : "border-stone-light hover:border-navy/30"
-                      }`}
-                    >
-                      <span
-                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-xs font-semibold ${
-                          chosen
-                            ? "bg-navy text-white"
-                            : "border border-stone-light bg-surface text-stone"
-                        }`}
-                      >
-                        {opt.letter}
-                      </span>
-                      <span className="flex-1">{opt.text}</span>
-                    </button>
-                  );
-                })}
-              </div>
+
+              {q.type === "constructed_response" ? (
+                <>
+                  <p className="mb-4 text-[15px] leading-relaxed">{q.stem}</p>
+                  <textarea
+                    value={selected[0] ?? ""}
+                    onChange={(e) => setTextAnswer(qi, e.target.value)}
+                    rows={5}
+                    placeholder="Write your response here&hellip;"
+                    className="w-full rounded border border-stone-light p-3 text-sm outline-none focus:border-navy focus:ring-2 focus:ring-navy/[0.06]"
+                  />
+                </>
+              ) : q.type === "inline_choice" ? (
+                <p className="mb-4 text-[15px] leading-relaxed">
+                  {renderInlineStem(q.stem, q.options, selected, (blankIndex, value) =>
+                    setBlankAnswer(qi, blankIndex, value)
+                  )}
+                </p>
+              ) : (
+                <>
+                  <p className="mb-4 text-[15px] leading-relaxed">{q.stem}</p>
+                  <div className="space-y-2">
+                    {q.options?.map((opt) => {
+                      const chosen = selected.includes(opt.letter);
+                      return (
+                        <button
+                          key={opt.letter}
+                          onClick={() => toggleAnswer(qi, opt.letter, multi)}
+                          className={`flex w-full items-start gap-3 rounded border p-3 text-left text-sm transition ${
+                            chosen
+                              ? "border-navy bg-navy/[0.04]"
+                              : "border-stone-light hover:border-navy/30"
+                          }`}
+                        >
+                          <span
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-xs font-semibold ${
+                              chosen
+                                ? "bg-navy text-white"
+                                : "border border-stone-light bg-surface text-stone"
+                            }`}
+                          >
+                            {opt.letter}
+                          </span>
+                          <span className="flex-1">{opt.text}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </li>
           );
         })}
