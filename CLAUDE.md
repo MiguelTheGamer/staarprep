@@ -23,6 +23,12 @@ npm run db:types   # regenerate lib/database.types.ts from local Supabase schema
 
 There is no test suite configured in this repo.
 
+`npm install` currently warns that the pinned `next@14.2.33` has a known
+security vulnerability, despite the README describing the pinned versions as
+"known-good" — don't `npm audit fix --force` reflexively, since that would
+break the intentional pin; if you upgrade Next, do it deliberately and retest
+auth/middleware.
+
 Database schema lives in `supabase/schema.sql`, applied by pasting into the
 Supabase SQL editor (or `supabase db push`) — it is not run automatically by
 any npm script. `lib/database.types.ts` must be kept in sync with the schema

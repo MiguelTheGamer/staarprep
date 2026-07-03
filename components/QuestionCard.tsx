@@ -9,6 +9,7 @@
 import { useState } from "react";
 import type { GeneratedQuestion } from "@/lib/prompts";
 import { QUESTION_TYPE_LABELS } from "@/lib/teks";
+import { parseInlineStem } from "@/lib/inlineChoice";
 
 export function QuestionCard({
   index,
@@ -30,6 +31,7 @@ export function QuestionCard({
     options[i] = { ...options[i], text };
     onChange({ ...question, options });
   };
+  const updateAnswer = (answer: string) => onChange({ ...question, answer });
 
   async function regen() {
     if (!onRegenerate) return;
@@ -63,6 +65,36 @@ export function QuestionCard({
           >
             {question.stem}
           </div>
+
+          {question.type === "inline_choice" && (
+            <p className="mt-2 text-[13px] leading-relaxed text-stone">
+              <span className="font-semibold text-navy">Preview: </span>
+              {parseInlineStem(question.stem).map((part, i) =>
+                part.kind === "text" ? (
+                  <span key={i}>{part.value}</span>
+                ) : (
+                  <select
+                    key={i}
+                    disabled
+                    defaultValue={
+                      part.choices.find((c) =>
+                        question.options?.some(
+                          (o) => o.correct && o.text.trim().toLowerCase() === c.toLowerCase()
+                        )
+                      ) ?? ""
+                    }
+                    className="mx-1 inline-block rounded border border-navy/40 bg-[#EDF2FA] px-2 py-0.5 text-[13px] font-medium text-navy"
+                  >
+                    {part.choices.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                )
+              )}
+            </p>
+          )}
         </div>
 
         <div className="flex shrink-0 gap-1">
@@ -124,10 +156,26 @@ export function QuestionCard({
         </div>
       )}
 
-      {!question.options && question.answer && (
-        <div className="mx-5 mb-4 rounded-md bg-[#EDF7F2] px-3 py-2.5 text-sm text-success">
-          <span className="font-semibold">Expected answer:</span> {question.answer}
+      {question.type === "constructed_response" ? (
+        <div className="px-5 pb-4">
+          <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-stone">
+            Model answer
+          </label>
+          <textarea
+            value={question.answer ?? ""}
+            onChange={(e) => updateAnswer(e.target.value)}
+            rows={3}
+            placeholder="No model answer provided — add one for grading reference."
+            className="w-full rounded-md border border-stone-light bg-surface p-3 text-sm outline-none focus:border-navy focus:ring-2 focus:ring-navy/[0.06]"
+          />
         </div>
+      ) : (
+        !question.options &&
+        question.answer && (
+          <div className="mx-5 mb-4 rounded-md bg-[#EDF7F2] px-3 py-2.5 text-sm text-success">
+            <span className="font-semibold">Expected answer:</span> {question.answer}
+          </div>
+        )
       )}
 
       <div className="border-t border-stone-light bg-bg px-5 py-4 text-[13px] leading-relaxed text-stone">

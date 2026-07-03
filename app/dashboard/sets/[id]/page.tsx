@@ -10,6 +10,7 @@ import { Topbar } from "@/components/Topbar";
 import { Tag } from "@/components/ui/Tag";
 import { SetDetailActions } from "@/components/SetDetailActions";
 import { QUESTION_TYPE_LABELS, type QuestionType } from "@/lib/teks";
+import { parseInlineStem } from "@/lib/inlineChoice";
 
 export default async function SetDetailPage({ params }: { params: { id: string } }) {
   const supabase = createClient();
@@ -51,9 +52,50 @@ export default async function SetDetailPage({ params }: { params: { id: string }
                 <Tag>{QUESTION_TYPE_LABELS[q.type as QuestionType] ?? q.type}</Tag>
                 <Tag>TEKS {q.teks}</Tag>
               </div>
-              <p className="mb-4 text-[15px] leading-relaxed">{q.stem}</p>
+              <p className="mb-4 text-[15px] leading-relaxed">
+                {q.type === "inline_choice"
+                  ? parseInlineStem(q.stem).map((part, j) =>
+                      part.kind === "text" ? (
+                        <span key={j}>{part.value}</span>
+                      ) : (
+                        <select
+                          key={j}
+                          disabled
+                          defaultValue={
+                            part.choices.find((c: string) =>
+                              q.options?.some(
+                                (o: any) =>
+                                  o.correct && o.text.trim().toLowerCase() === c.toLowerCase()
+                              )
+                            ) ?? ""
+                          }
+                          className="mx-1 inline-block rounded border border-navy/40 bg-[#EDF2FA] px-2 py-0.5 text-sm font-medium text-navy"
+                        >
+                          {part.choices.map((c: string) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    )
+                  : q.stem}
+              </p>
 
-              {q.options && q.options.length > 0 && (
+              {q.type === "constructed_response" && (
+                <div className="mb-3 min-h-[4.5rem] w-full rounded border border-stone-light bg-bg px-3 py-2 text-sm text-stone">
+                  {q.answer ? (
+                    <>
+                      <span className="font-semibold text-navy">Model answer: </span>
+                      {q.answer}
+                    </>
+                  ) : (
+                    <span className="italic">Free response — no model answer provided.</span>
+                  )}
+                </div>
+              )}
+
+              {q.type !== "inline_choice" && q.options && q.options.length > 0 && (
                 <ul className="mb-3 space-y-1.5">
                   {q.options.map((o: any, j: number) => (
                     <li
@@ -69,7 +111,7 @@ export default async function SetDetailPage({ params }: { params: { id: string }
                 </ul>
               )}
 
-              {q.answer && !q.options && (
+              {q.type !== "constructed_response" && q.answer && !q.options && (
                 <div className="mb-3 rounded bg-[#EDF7F2] px-3 py-2 text-sm text-success">
                   <span className="font-semibold">Expected:</span> {q.answer}
                 </div>

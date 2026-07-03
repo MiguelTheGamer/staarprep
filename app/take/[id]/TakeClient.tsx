@@ -10,6 +10,7 @@
  *   4. Done screen (score shown, no answer key, single submission only).
  */
 import { useEffect, useState } from "react";
+import { parseInlineStem, countInlineBlanks } from "@/lib/inlineChoice";
 
 type Option = { letter: string; text: string };
 type Question = {
@@ -25,16 +26,12 @@ type LoadedData = {
   students: Student[];
 };
 
-/** STAAR inline_choice stems embed dropdown choices as "[[opt1|opt2|opt3]]". */
-function countBlanks(stem: string): number {
-  return (stem.match(/\[\[(.*?)\]\]/g) ?? []).length;
-}
-
 /**
- * Splits a stem on `[[...]]` markers and renders each as an inline <select>,
- * matching how STAAR itself embeds dropdowns in the sentence rather than
- * listing choices below it. Marker choice text is matched against `options`
- * (case-insensitively) to recover the option's letter for grading.
+ * Renders a parsed inline_choice stem as text interleaved with interactive
+ * <select> dropdowns, matching how STAAR embeds dropdowns in the sentence
+ * rather than listing choices below it. Marker choice text is matched
+ * against `options` (case-insensitively) to recover the option's letter for
+ * grading.
  */
 function renderInlineStem(
   stem: string,
@@ -42,21 +39,13 @@ function renderInlineStem(
   selected: string[],
   onSelect: (blankIndex: number, value: string) => void
 ): React.ReactNode[] {
-  const regex = /\[\[(.*?)\]\]/g;
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
   let blankIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(stem)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(stem.slice(lastIndex, match.index));
-    }
-    const choices = match[1].split("|").map((c) => c.trim()).filter(Boolean);
-    const blank = blankIndex;
-    parts.push(
+  return parseInlineStem(stem).map((part, i) => {
+    if (part.kind === "text") return <span key={i}>{part.value}</span>;
+    const blank = blankIndex++;
+    return (
       <select
-        key={`blank-${blank}`}
+        key={i}
         value={selected[blank] ?? ""}
         onChange={(e) => onSelect(blank, e.target.value)}
         className="mx-1 inline-block rounded border border-navy/40 bg-[#EDF2FA] px-2 py-1 text-sm font-medium text-navy outline-none focus:border-navy focus:ring-2 focus:ring-navy/[0.06]"
@@ -64,7 +53,7 @@ function renderInlineStem(
         <option value="" disabled>
           Choose&hellip;
         </option>
-        {choices.map((choiceText) => {
+        {part.choices.map((choiceText) => {
           const matchedOption = options?.find(
             (o) => o.text.trim().toLowerCase() === choiceText.toLowerCase()
           );
@@ -77,11 +66,7 @@ function renderInlineStem(
         })}
       </select>
     );
-    lastIndex = regex.lastIndex;
-    blankIndex += 1;
-  }
-  if (lastIndex < stem.length) parts.push(stem.slice(lastIndex));
-  return parts;
+  });
 }
 
 export function TakeClient({ assignmentId }: { assignmentId: string }) {
@@ -141,7 +126,7 @@ export function TakeClient({ assignmentId }: { assignmentId: string }) {
       return sel.length > 0 && sel[0].trim().length > 0;
     }
     if (q.type === "inline_choice") {
-      const blanks = countBlanks(q.stem);
+      const blanks = countInlineBlanks(q.stem);
       if (blanks === 0) return sel.length > 0;
       return sel.length === blanks && sel.every(Boolean);
     }
